@@ -1,8 +1,8 @@
 ﻿import os
 from tqdm import tqdm
 from setting.setting import *
-test_folder = '../dataset/raw/Test_Alphabet'
-train_folder = '../dataset/raw/Train_Alphabet'
+test_folder = '../../dataset/raw/Test_Alphabet'
+train_folder = '../../dataset/raw/Train_Alphabet'
 labels = LABELS
 
 def rename_files_in_folder(folder_path, label):

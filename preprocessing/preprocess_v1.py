@@ -4,10 +4,10 @@ import numpy as np
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+import os
 from setting.setting import *
 
 mp_hands = mp.solutions.hands
-
 def process_image(image_path, output_path):
     with mp_hands.Hands(
         static_image_mode=True,
