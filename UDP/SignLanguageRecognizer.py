@@ -63,10 +63,8 @@ class SignLanguageRecognizer:
 
     def predict(self, input_data):
         if isinstance(input_data, str):
-            # Đầu vào là đường dẫn tệp
             preprocessed = self.preprocess_image(input_data)
         elif isinstance(input_data, bytes):
-            # Đầu vào là mảng byte
             image = cv2.imdecode(np.frombuffer(input_data, np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 return None
@@ -80,18 +78,18 @@ class SignLanguageRecognizer:
         prediction_frame = np.expand_dims(np.float32(preprocessed) / 255.0, axis=0)
         prediction = self.model.predict(prediction_frame)
         predicted_index = np.argmax(prediction)
-        return self.class_names[predicted_index]
+        return self.class_names[predicted_index], 1
 
-
-if __name__ == "__main__":
-    recognizer = SignLanguageRecognizer('../models/CNN/cnn_best_model.keras')
-    label = "B"
-    i = 10
-    result_from_path = recognizer.predict(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png')
-    print("Dự đoán từ đường dẫn:", result_from_path)
-
-
-    with open(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png', 'rb') as file:
-        image_bytes = file.read()
-    result_from_bytes = recognizer.predict(image_bytes)
-    print("Dự đoán từ byte:", result_from_bytes)
+#
+# if __name__ == "__main__":
+#     recognizer = SignLanguageRecognizer('../models/CNN/cnn_best_model.keras')
+#     label = "B"
+#     i = 10
+#     result_from_path = recognizer.predict(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png')
+#     print("Dự đoán từ đường dẫn:", result_from_path)
+#
+#
+#     with open(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png', 'rb') as file:
+#         image_bytes = file.read()
+#     result_from_bytes = recognizer.predict(image_bytes)
+#     print("Dự đoán từ byte:", result_from_bytes)
