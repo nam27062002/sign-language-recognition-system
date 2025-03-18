@@ -72,7 +72,7 @@ class SignLanguageRecognizer:
 
 
 if __name__ == "__main__":
-    recognizer = SignLanguageRecognizer('../models/CNN/cnn_best_model_v1.keras')
+    recognizer = SignLanguageRecognizer('D:\sign-language-recognition-system\models\CNN\cnn_best_model.keras')
     for i in range(1,900, 1):
-        result = recognizer.predict(f'D:\\met_moi_qua_di\\dataset\\raw\\Train_Alphabet\\A\\A_{i}.png')
+        result = recognizer.predict(f'D:\\sign-language-recognition-system\\dataset\\raw\\Train_Alphabet\\A\\A_{i}.png')
         print(result)
