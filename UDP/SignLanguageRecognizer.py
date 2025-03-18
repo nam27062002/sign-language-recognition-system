@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 import mediapipe as mp
 from setting.setting import LABELS, PROCESSING_SIZE
-
+import time
 
 class SignLanguageRecognizer:
     def __init__(self, model_path):
@@ -72,7 +72,13 @@ class SignLanguageRecognizer:
 
 
 if __name__ == "__main__":
-    recognizer = SignLanguageRecognizer('D:\sign-language-recognition-system\models\CNN\cnn_best_model.keras')
-    for i in range(1,900, 1):
-        result = recognizer.predict(f'D:\\sign-language-recognition-system\\dataset\\raw\\Train_Alphabet\\A\\A_{i}.png')
-        print(result)
+    recognizer = SignLanguageRecognizer('D:\\AAAA\\models\\CNN\\cnn_best_model.keras')
+    t = time.time()
+    count = 0
+    label = "B"
+    for i in range(1, 900, 1):
+        result = recognizer.predict(f'D:\\met_moi_qua_di\\dataset\\raw\\Train_Alphabet\\{label}\\{label}_{i}.png')
+        if result == label:
+            count += 1
+    print(time.time() - t)
+    print(count)
