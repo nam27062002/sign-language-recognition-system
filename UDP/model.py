@@ -5,15 +5,11 @@ import mediapipe as mp
 from setting.setting import LABELS, PROCESSING_SIZE
 import time
 
-class SignLanguageRecognizer:
+class model:
     def __init__(self, model_path):
         self.model = tf.keras.models.load_model(model_path)
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.7
-        )
+        self.hands = self.mp_hands.Hands(static_image_mode=False,max_num_hands=1,min_detection_confidence=0.7)
         self.class_names = LABELS
         self.processing_size = PROCESSING_SIZE
 
@@ -64,13 +60,15 @@ class SignLanguageRecognizer:
     def predict(self, input_data):
         if isinstance(input_data, str):
             preprocessed = self.preprocess_image(input_data)
-        elif isinstance(input_data, bytes):
+        elif isinstance(input_data, (bytes, bytearray)):
+            if isinstance(input_data, bytearray):
+                input_data = bytes(input_data)
             image = cv2.imdecode(np.frombuffer(input_data, np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 return None
             preprocessed = self._preprocess(image)
         else:
-            raise ValueError("Đầu vào phải là đường dẫn tệp (str) hoặc mảng byte hình ảnh (bytes)")
+            raise ValueError("Đầu vào phải là đường dẫn tệp (str), bytes hoặc bytearray hình ảnh")
 
         if preprocessed is None:
             return None
