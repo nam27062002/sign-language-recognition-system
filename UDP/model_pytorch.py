@@ -3,19 +3,25 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import mediapipe as mp
-from setting.setting import LABELS, PROCESSING_SIZE  # Giả định có file setting chứa LABELS và PROCESSING_SIZE
+from enum import Enum, auto
+from setting.setting import LABELS, PROCESSING_SIZE
 
-# Thiết bị chạy mô hình (CPU hoặc GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Định nghĩa mô hình CNN trong PyTorch
+
+class ModelType(Enum):
+    MOBILENETV2 = auto()
+    VGG16 = auto()
+    CNN = auto()
+
+
 class CNNModel(nn.Module):
     def __init__(self):
         super(CNNModel, self).__init__()
-        # 3 lớp tích chập với pooling và dropout
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False)
         self.pool1 = nn.MaxPool2d(2, 2)
         self.dropout1 = nn.Dropout(0.25)
@@ -25,11 +31,10 @@ class CNNModel(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
         self.pool3 = nn.MaxPool2d(2, 2)
         self.dropout3 = nn.Dropout(0.25)
-        # Lớp flatten và fully connected
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(128 * (PROCESSING_SIZE // 8) * (PROCESSING_SIZE // 8), 256)
         self.dropout4 = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(256, 26)  # 26 lớp tương ứng với A-Z
+        self.fc2 = nn.Linear(256, len(LABELS))
 
     def forward(self, x):
         x = self.pool1(F.relu(self.conv1(x)))
@@ -44,133 +49,126 @@ class CNNModel(nn.Module):
         x = self.fc2(x)
         return x
 
-# Lớp nhận diện ngôn ngữ ký hiệu
+
 class SignLanguageRecognizer:
-    def __init__(self, model_path):
-        # Khởi tạo mô hình và tải trọng số
-        self.model = CNNModel().to(device)
+    def __init__(self, model_type: ModelType, model_path: str):
+        self.model_type = model_type
+        self._init_model()
+
         self.model.load_state_dict(torch.load(model_path, map_location=device))
         self.model.eval()
-        # Khởi tạo Mediapipe Hands
+        self._init_mediapipe()
+        self.class_names = LABELS
+
+    def _init_model(self):
+        if self.model_type == ModelType.MOBILENETV2:
+            self.model = models.mobilenet_v2(pretrained=False)
+            self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, len(LABELS))
+            self.processing_size = 224
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+        elif self.model_type == ModelType.VGG16:
+            self.model = models.vgg16(pretrained=False)
+            num_features = self.model.classifier[6].in_features
+            self.model.classifier[6] = nn.Linear(num_features, len(LABELS))
+            self.processing_size = 224
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+        elif self.model_type == ModelType.CNN:
+            self.model = CNNModel()
+            self.processing_size = PROCESSING_SIZE
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+            ])
+        else:
+            raise ValueError("Invalid model type")
+
+        self.model = self.model.to(device)
+
+    def _init_mediapipe(self):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
             min_detection_confidence=0.7
         )
-        self.class_names = LABELS  # Danh sách nhãn A-Z
-        self.processing_size = PROCESSING_SIZE  # Kích thước xử lý ảnh
-        # Biến đổi ảnh thành tensor
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),  # Chuyển từ [0, 255] sang [0, 1]
-        ])
 
     def _preprocess(self, image):
-        """Tiền xử lý ảnh: phát hiện tay và chuẩn bị tensor đầu vào"""
-        # Chuyển ảnh sang RGB cho Mediapipe
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.hands.process(image_rgb)
         if not results.multi_hand_landmarks:
             return None
 
-        # Tạo mask tay
-        height, width, _ = image.shape
+        height, width = image.shape[:2]
         hand_mask = np.zeros((height, width), dtype=np.uint8)
+
         for hand_landmarks in results.multi_hand_landmarks:
-            points = []
-            for lm in hand_landmarks.landmark:
-                x, y = int(lm.x * width), int(lm.y * height)
-                points.append((x, y))
+            points = [(int(lm.x * width), int(lm.y * height))
+                      for lm in hand_landmarks.landmark]
             cv2.fillPoly(hand_mask, [np.array(points, dtype=np.int32)], 255)
 
-        # Làm mịn và mở rộng mask
         kernel = np.ones((5, 5), np.uint8)
-        hand_mask_dilated = cv2.dilate(hand_mask, kernel, iterations=1)
-        hand_mask_blurred = cv2.GaussianBlur(hand_mask_dilated, (21, 21), 0)
+        hand_mask = cv2.dilate(hand_mask, kernel, iterations=1)
+        hand_mask = cv2.GaussianBlur(hand_mask, (21, 21), 0)
 
-        # Tách vùng tay khỏi nền đen
-        hand_on_black_background = np.where(hand_mask_blurred[..., None] > 0, image, np.zeros_like(image))
+        hand_image = np.where(hand_mask[..., None] > 0, image, 0)
+        hand_image = cv2.cvtColor(hand_image, cv2.COLOR_BGR2RGB)
 
-        # Tìm contour để xác định bounding box
-        contours, _ = cv2.findContours(hand_mask_blurred, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(hand_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
 
-        # Xác định vùng bao quanh tay
-        x_min, x_max, y_min, y_max = width, 0, height, 0
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            x_min, y_min = min(x_min, x), min(y_min, y)
-            x_max, y_max = max(x_max, x + w), max(y_max, y + h)
+        x, y, w, h = cv2.boundingRect(np.concatenate(contours))
+        hand_roi = hand_image[y:y + h, x:x + w]
 
-        # Cắt và điều chỉnh kích thước vùng tay
-        hand_area = hand_on_black_background[y_min:y_max, x_min:x_max]
-        hand_width, hand_height = x_max - x_min, y_max - y_min
-        scale_factor = min(self.processing_size / hand_width, self.processing_size / hand_height) * 0.8
-        scaled_w, scaled_h = int(hand_width * scale_factor), int(hand_height * scale_factor)
-        resized_hand_area = cv2.resize(hand_area, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+        scale = min(self.processing_size / w, self.processing_size / h) * 0.8
+        new_size = (int(w * scale), int(h * scale))
+        resized = cv2.resize(hand_roi, new_size, interpolation=cv2.INTER_AREA)
 
-        # Đặt vùng tay vào giữa ảnh
-        centered_image = np.zeros((self.processing_size, self.processing_size, 3), dtype=np.uint8)
-        x_offset = (self.processing_size - scaled_w) // 2
-        y_offset = (self.processing_size - scaled_h) // 2
-        centered_image[y_offset:y_offset + scaled_h, x_offset:x_offset + scaled_w] = resized_hand_area
+        processed = np.zeros((self.processing_size, self.processing_size, 3), dtype=np.uint8)
+        dx = (self.processing_size - new_size[0]) // 2
+        dy = (self.processing_size - new_size[1]) // 2
+        processed[dy:dy + new_size[1], dx:dx + new_size[0]] = resized
 
-        # Chuyển sang grayscale và mở rộng thành 3 kênh
-        grayscale_frame = cv2.cvtColor(centered_image, cv2.COLOR_BGR2GRAY)
-        expanded_frame = np.stack((grayscale_frame,) * 3, axis=-1)
-
-        # Chuyển thành tensor
-        image_pil = Image.fromarray(expanded_frame)
-        image_tensor = self.transform(image_pil)
-        return image_tensor
-
-    def preprocess_image(self, path):
-        """Đọc và tiền xử lý ảnh từ đường dẫn"""
-        image = cv2.imread(path)
-        if image is None:
-            return None
-        return self._preprocess(image)
+        return self.transform(Image.fromarray(processed))
 
     def predict(self, input_data):
-        """Dự đoán nhãn từ ảnh đầu vào (đường dẫn hoặc bytes)"""
-        if isinstance(input_data, str):
-            preprocessed = self.preprocess_image(input_data)
-        elif isinstance(input_data, (bytes, bytearray)):
-            if isinstance(input_data, bytearray):
-                input_data = bytes(input_data)
-            image = cv2.imdecode(np.frombuffer(input_data, np.uint8), cv2.IMREAD_COLOR)
-            if image is None:
-                return None
-            preprocessed = self._preprocess(image)
-        else:
-            raise ValueError("Đầu vào phải là đường dẫn tệp (str), bytes hoặc bytearray hình ảnh")
-
-        if preprocessed is None:
+        image = self._load_image(input_data)
+        if image is None:
             return None
 
-        # Thêm batch dimension và chuyển sang thiết bị
-        preprocessed = preprocessed.unsqueeze(0).to(device)
+        tensor = self._preprocess(image)
+        if tensor is None:
+            return None
+
         with torch.no_grad():
-            outputs = self.model(preprocessed)
-        predicted_index = torch.argmax(outputs, dim=1).item()
-        return self.class_names[predicted_index]
+            outputs = self.model(tensor.unsqueeze(0).to(device))
+            return self.class_names[torch.argmax(outputs).item()]
+
+    def _load_image(self, input_data):
+        if isinstance(input_data, str):
+            image = cv2.imread(input_data)
+        elif isinstance(input_data, (bytes, bytearray)):
+            image = cv2.imdecode(np.frombuffer(input_data, np.uint8), cv2.IMREAD_COLOR)
+        else:
+            raise ValueError("Invalid input type")
+        return image
+
 
 if __name__ == "__main__":
-    # Khởi tạo mô hình
-    recognizer = SignLanguageRecognizer('../models/VGG16/vgg16_best_model_v1.pth')  # Đường dẫn tới file trọng số PyTorch
-    label = "B"
-    count = 0
-    for i in range(1,900,1):
-    # Dự đoán từ đường dẫn
-        result_from_path = recognizer.predict(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png')
-        if result_from_path == "B":
-            count += 1
+    model_type = ModelType.MOBILENETV2
+    model_path = f'../models/{model_type.name}/{model_type.name.lower()}_best_model_v1.pth'
+    recognizer = SignLanguageRecognizer(model_type, model_path)
 
-    print("Dự đoán từ đường dẫn:", count)
+    correct_count = 0
+    target_label = "B"
+    for i in range(1, 900):
+        result = recognizer.predict(f'../dataset/raw/Train_Alphabet/{target_label}/{target_label}_{i}.png')
+        if result == target_label:
+            correct_count += 1
 
-    # # Dự đoán từ bytes
-    # with open(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png', 'rb') as file:
-    #     image_bytes = file.read()
-    # result_from_bytes = recognizer.predict(image_bytes)
-    # print("Dự đoán từ byte:", result_from_bytes)
+    print(f"Correct predictions for {target_label}: {correct_count}/899")

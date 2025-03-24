@@ -1,29 +1,68 @@
 ﻿import cv2
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.transforms as transforms
+from PIL import Image
 import mediapipe as mp
 from setting.setting import LABELS, PROCESSING_SIZE
-import time
-from enum import Enum, auto
 
-class ModelType(Enum):
-    MOBILENETV2 = auto()
-    VGG16 = auto()
-    CNN = auto()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class model:
+class CNNModel(nn.Module):
+    def __init__(self):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False)
+        self.pool1 = nn.MaxPool2d(2, 2)
+        self.dropout1 = nn.Dropout(0.25)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool2 = nn.MaxPool2d(2, 2)
+        self.dropout2 = nn.Dropout(0.25)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.pool3 = nn.MaxPool2d(2, 2)
+        self.dropout3 = nn.Dropout(0.25)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(128 * (PROCESSING_SIZE // 8) * (PROCESSING_SIZE // 8), 256)
+        self.dropout4 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(256, 26)  # 26 lớp tương ứng với A-Z
+
+    def forward(self, x):
+        x = self.pool1(F.relu(self.conv1(x)))
+        x = self.dropout1(x)
+        x = self.pool2(F.relu(self.conv2(x)))
+        x = self.dropout2(x)
+        x = self.pool3(F.relu(self.conv3(x)))
+        x = self.dropout3(x)
+        x = self.flatten(x)
+        x = F.relu(self.fc1(x))
+        x = self.dropout4(x)
+        x = self.fc2(x)
+        return x
+
+class SignLanguageRecognizer:
     def __init__(self, model_path):
-        self.model = tf.keras.models.load_model(model_path)
+        self.model = CNNModel().to(device)
+        self.model.load_state_dict(torch.load(model_path, map_location=device))
+        self.model.eval()
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(static_image_mode=False,max_num_hands=1,min_detection_confidence=0.7)
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.7
+        )
         self.class_names = LABELS
         self.processing_size = PROCESSING_SIZE
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
 
     def _preprocess(self, image):
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.hands.process(image_rgb)
         if not results.multi_hand_landmarks:
             return None
+
         height, width, _ = image.shape
         hand_mask = np.zeros((height, width), dtype=np.uint8)
         for hand_landmarks in results.multi_hand_landmarks:
@@ -32,6 +71,7 @@ class model:
                 x, y = int(lm.x * width), int(lm.y * height)
                 points.append((x, y))
             cv2.fillPoly(hand_mask, [np.array(points, dtype=np.int32)], 255)
+
         kernel = np.ones((5, 5), np.uint8)
         hand_mask_dilated = cv2.dilate(hand_mask, kernel, iterations=1)
         hand_mask_blurred = cv2.GaussianBlur(hand_mask_dilated, (21, 21), 0)
@@ -55,7 +95,9 @@ class model:
         centered_image[y_offset:y_offset + scaled_h, x_offset:x_offset + scaled_w] = resized_hand_area
         grayscale_frame = cv2.cvtColor(centered_image, cv2.COLOR_BGR2GRAY)
         expanded_frame = np.stack((grayscale_frame,) * 3, axis=-1)
-        return expanded_frame
+        image_pil = Image.fromarray(expanded_frame)
+        image_tensor = self.transform(image_pil)
+        return image_tensor
 
     def preprocess_image(self, path):
         image = cv2.imread(path)
@@ -78,24 +120,18 @@ class model:
 
         if preprocessed is None:
             return None
-
-        prediction_frame = np.expand_dims(np.float32(preprocessed) / 255.0, axis=0)
-        prediction = self.model.predict(prediction_frame)
-        predicted_index = np.argmax(prediction)
+        preprocessed = preprocessed.unsqueeze(0).to(device)
+        with torch.no_grad():
+            outputs = self.model(preprocessed)
+        predicted_index = torch.argmax(outputs, dim=1).item()
         return self.class_names[predicted_index]
 
-
 if __name__ == "__main__":
-    model_type = ModelType.MOBILENETV2
-    model_path = f'../models/{model_type.name}/{model_type.name.lower()}_best_model_v1.keras'
-    recognizer = model(model_path)
-
+    recognizer = SignLanguageRecognizer('../models/CNN/cnn_best_model_v1.pth')
     label = "B"
     count = 0
     for i in range(1,900,1):
         result_from_path = recognizer.predict(f'../dataset/raw/Train_Alphabet/{label}/{label}_{i}.png')
-        print(result_from_path)
         if result_from_path == "B":
             count += 1
-
     print("Dự đoán từ đường dẫn:", count)
