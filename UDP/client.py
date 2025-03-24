@@ -6,7 +6,7 @@ class KeyData(IntEnum):
     LetterPrediction = 1
 
 def main():
-    server_ip = "127.0.0.1"
+    server_ip = "10.241.2.88"
     server_port = 5005
     image_path = "D:\\PBL5_Python\\dataset\\asl_dataset\\test\\B_test.jpg"
 
