@@ -1,6 +1,6 @@
 ﻿import asyncio
 from enum import IntEnum
-from model_tensorflow import model
+from training.model_tensorflow import model
 
 
 class KeyData(IntEnum):

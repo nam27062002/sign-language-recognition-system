@@ -86,7 +86,7 @@ class model:
 
 
 if __name__ == "__main__":
-    model_type = ModelType.MOBILENETV2
+    model_type = ModelType.VGG16
     model_path = f'../models/{model_type.name}/{model_type.name.lower()}_best_model_v1.keras'
     recognizer = model(model_path)
 
