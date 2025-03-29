@@ -18,7 +18,7 @@ models_info = [
 
 eval_data = []
 for label in LABELS:
-    for i in range(1, 10):
+    for i in range(1, 700):
         image_path = f'../dataset/raw/Test_Alphabet/{label}/{label}_{i}.png'
         eval_data.append({"image_path": image_path, "label": label})
 
