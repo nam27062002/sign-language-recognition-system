@@ -158,17 +158,15 @@ class SignLanguageRecognizer:
             raise ValueError("Invalid input type")
         return image
 
+    def detect_hand(self, input_data):
+        try:
+            image = self._load_image(input_data)
+            if image is None:
+                return False
 
-if __name__ == "__main__":
-    model_type = ModelType.VGG16
-    model_path = f'../models/{model_type.name}/{model_type.name.lower()}_best_model_v1.pth'
-    recognizer = SignLanguageRecognizer(model_type, model_path)
-
-    correct_count = 0
-    target_label = "B"
-    for i in range(1, 900):
-        result = recognizer.predict(f'../dataset/raw/Train_Alphabet/{target_label}/{target_label}_{i}.png')
-        if result == target_label:
-            correct_count += 1
-
-    print(f"Correct predictions for {target_label}: {correct_count}/899")
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = self.hands.process(image_rgb)
+            return results.multi_hand_landmarks is not None
+        except Exception as e:
+            print(f"Error in hand detection: {str(e)}")
+            return False

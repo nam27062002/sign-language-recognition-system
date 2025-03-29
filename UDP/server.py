@@ -1,15 +1,16 @@
 ﻿import asyncio
 from enum import IntEnum
-from training.model_tensorflow import model
+from training.model_pytorch import SignLanguageRecognizer, ModelType
 
 
 class KeyData(IntEnum):
     None_ = 0
     LetterPrediction = 1
+    HandRecognition = 2
 
 
 class TCPProtocol:
-    def __init__(self, md: model):
+    def __init__(self, md:SignLanguageRecognizer):
         self.model = md
         self.transport = None
         self.buffer = bytearray()
@@ -42,6 +43,16 @@ class TCPProtocol:
                     print(error_msg)
                     self.send_response(KeyData.None_, error_msg.encode('utf-8'))
 
+            elif key_data == KeyData.HandRecognition:
+                try:
+                    has_hand = self.model.detect_hand(payload)
+                    response_str = "true" if has_hand else "false"
+                    print(f"Hand detected: {response_str}")
+                    self.send_response(KeyData.HandRecognition, response_str.encode('utf-8'))
+                except Exception as e:
+                    error_msg = f"Hand detection error: {str(e)}"
+                    print(error_msg)
+                    self.send_response(KeyData.None_, error_msg.encode('utf-8'))
             del self.buffer[:8 + payload_length]
 
     def send_response(self, key_data: KeyData, payload: bytes):
@@ -53,12 +64,15 @@ class TCPProtocol:
     def connection_lost(self, exc):
         print("Connection lost with client.")
 
+    def eof_received(self):
+        print("EOF received, closing connection")
+        return False
 
 class AsyncTCPServer:
-    def __init__(self, ip="127.0.0.1", port=5005, model_path=""):
+    def __init__(self, ip="127.0.0.1", port=5005, model_type = ModelType.CNN, model_path = "../models/CNN/cnn_best_model_v1.pth"):
         self.ip = ip
         self.port = port
-        self.model = model(model_path)
+        self.model = SignLanguageRecognizer(model_type, model_path)
 
     async def start_server(self):
         loop = asyncio.get_running_loop()
@@ -72,7 +86,6 @@ def main():
     server = AsyncTCPServer(
         ip="127.0.0.1",
         port=5005,
-        model_path="../models/CNN/cnn_best_model.keras"
     )
     asyncio.run(server.start_server())
 

@@ -6,9 +6,9 @@ class KeyData(IntEnum):
     LetterPrediction = 1
 
 def main():
-    server_ip = "10.241.2.88"
+    server_ip = "127.0.0.1"
     server_port = 5005
-    image_path = "D:\\PBL5_Python\\dataset\\asl_dataset\\test\\B_test.jpg"
+    image_path = "../dataset/raw/Train_Alphabet/Blank/0a1d576a-5708-4716-a664-98c7e58d3a0e.rgb_0000.png"
 
     try:
         with open(image_path, "rb") as f:
