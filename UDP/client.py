@@ -13,7 +13,7 @@ def send_all(sock, data):
         sent = sock.send(data[total_sent:])
         if sent == 0:
             raise RuntimeError("Socket connection broken")
-        total_sent += sent
+        total_sent += sent      
 
 def recv_all(sock, n):
     """Nhận đủ n bytes từ socket"""
@@ -29,7 +29,6 @@ def main():
     server_ip = "127.0.0.1"
     server_port = 5005
     image_path = "dataset/raw/Train_Alphabet/A/A_0.png"
-
     try:
         with open(image_path, "rb") as f:
             image_data = f.read()

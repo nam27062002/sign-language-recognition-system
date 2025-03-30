@@ -58,10 +58,6 @@ class SignLanguageRecognizer:
         self.model.eval()
         self._init_mediapipe()
         self.class_names = LABELS
-        
-        # Cache cho việc xử lý ảnh
-        self.image_cache = {}
-        self.cache_size = 1000  # Số lượng ảnh tối đa trong cache
 
     def _init_model(self):
         if self.model_type == ModelType.MOBILENETV2:
@@ -101,11 +97,6 @@ class SignLanguageRecognizer:
         )
 
     def _preprocess(self, image):
-        # Create hash for image
-        image_hash = hash(image.tobytes())
-        if image_hash in self.image_cache:
-            return self.image_cache[image_hash]
-
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.hands.process(image_rgb)
         if not results.multi_hand_landmarks:
@@ -143,38 +134,16 @@ class SignLanguageRecognizer:
         dy = (self.processing_size - new_size[1]) // 2
         processed[dy:dy + new_size[1], dx:dx + new_size[0]] = resized
 
-        result = self.transform(Image.fromarray(processed))
-        
-        # Save to cache
-        if len(self.image_cache) >= self.cache_size:
-            self.image_cache.pop(next(iter(self.image_cache)))
-        self.image_cache[image_hash] = result
-        
-        return result
+        return self.transform(Image.fromarray(processed))
 
     def predict(self, input_data):
-        # Create hash for input_data
-        if isinstance(input_data, (bytes, bytearray)):
-            input_hash = hash(input_data.decode('utf-8', errors='ignore'))
-        else:
-            input_hash = hash(input_data)
+        image = self._load_image(input_data)
+        if image is None:
+            return None
 
-        # Check cache
-        if input_hash in self.image_cache:
-            tensor = self.image_cache[input_hash]
-        else:
-            image = self._load_image(input_data)
-            if image is None:
-                return None
-
-            tensor = self._preprocess(image)
-            if tensor is None:
-                return None
-
-            # Save to cache
-            if len(self.image_cache) >= self.cache_size:
-                self.image_cache.pop(next(iter(self.image_cache)))
-            self.image_cache[input_hash] = tensor
+        tensor = self._preprocess(image)
+        if tensor is None:
+            return None
 
         with torch.no_grad():
             outputs = self.model(tensor.unsqueeze(0).to(device))
