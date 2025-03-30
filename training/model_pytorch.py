@@ -147,7 +147,10 @@ class SignLanguageRecognizer:
 
         with torch.no_grad():
             outputs = self.model(tensor.unsqueeze(0).to(device))
-            return self.class_names[torch.argmax(outputs).item()]
+            probabilities = F.softmax(outputs, dim=1)
+            predicted_idx = torch.argmax(probabilities).item()
+            confidence = probabilities[0][predicted_idx].item()
+            return self.class_names[predicted_idx], confidence
 
     def _load_image(self, input_data):
         if isinstance(input_data, str):
