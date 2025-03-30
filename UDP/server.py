@@ -20,7 +20,7 @@ class TCPProtocol:
         self.model = md
         self.transport = None
         self.buffer = bytearray()
-        self.debug_mode = False  # Default debug mode is off
+        self.debug_mode = True  # Default debug mode is off
         self.processing = False  # Flag to prevent concurrent processing
 
     def set_debug_mode(self, enable: bool):
@@ -58,6 +58,8 @@ class TCPProtocol:
                             if self.debug_mode:
                                 print(error_msg)
                             self.send_response(KeyData.None_, error_msg.encode('utf-8'))
+                            # Xóa dữ liệu đã xử lý khỏi buffer trước khi return
+                            del self.buffer[:8 + payload_length]
                             return
                         
                         predicted_label, confidence = result
@@ -71,6 +73,9 @@ class TCPProtocol:
                         if self.debug_mode:
                             print(error_msg)
                         self.send_response(KeyData.None_, error_msg.encode('utf-8'))
+                        # Xóa dữ liệu đã xử lý khỏi buffer khi có lỗi
+                        del self.buffer[:8 + payload_length]
+                        return
 
                 elif key_data == KeyData.HandRecognition:
                     try:
