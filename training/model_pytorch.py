@@ -54,11 +54,14 @@ class SignLanguageRecognizer:
     def __init__(self, model_type: ModelType, model_path: str):
         self.model_type = model_type
         self._init_model()
-
         self.model.load_state_dict(torch.load(model_path, map_location=device))
         self.model.eval()
         self._init_mediapipe()
         self.class_names = LABELS
+        
+        # Cache cho việc xử lý ảnh
+        self.image_cache = {}
+        self.cache_size = 1000  # Số lượng ảnh tối đa trong cache
 
     def _init_model(self):
         if self.model_type == ModelType.MOBILENETV2:
@@ -98,6 +101,11 @@ class SignLanguageRecognizer:
         )
 
     def _preprocess(self, image):
+        # Create hash for image
+        image_hash = hash(image.tobytes())
+        if image_hash in self.image_cache:
+            return self.image_cache[image_hash]
+
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.hands.process(image_rgb)
         if not results.multi_hand_landmarks:
@@ -111,6 +119,7 @@ class SignLanguageRecognizer:
                       for lm in hand_landmarks.landmark]
             cv2.fillPoly(hand_mask, [np.array(points, dtype=np.int32)], 255)
 
+        # Tối ưu hóa các phép toán xử lý ảnh
         kernel = np.ones((5, 5), np.uint8)
         hand_mask = cv2.dilate(hand_mask, kernel, iterations=1)
         hand_mask = cv2.GaussianBlur(hand_mask, (21, 21), 0)
@@ -134,16 +143,38 @@ class SignLanguageRecognizer:
         dy = (self.processing_size - new_size[1]) // 2
         processed[dy:dy + new_size[1], dx:dx + new_size[0]] = resized
 
-        return self.transform(Image.fromarray(processed))
+        result = self.transform(Image.fromarray(processed))
+        
+        # Save to cache
+        if len(self.image_cache) >= self.cache_size:
+            self.image_cache.pop(next(iter(self.image_cache)))
+        self.image_cache[image_hash] = result
+        
+        return result
 
     def predict(self, input_data):
-        image = self._load_image(input_data)
-        if image is None:
-            return None
+        # Create hash for input_data
+        if isinstance(input_data, (bytes, bytearray)):
+            input_hash = hash(input_data.decode('utf-8', errors='ignore'))
+        else:
+            input_hash = hash(input_data)
 
-        tensor = self._preprocess(image)
-        if tensor is None:
-            return None
+        # Check cache
+        if input_hash in self.image_cache:
+            tensor = self.image_cache[input_hash]
+        else:
+            image = self._load_image(input_data)
+            if image is None:
+                return None
+
+            tensor = self._preprocess(image)
+            if tensor is None:
+                return None
+
+            # Save to cache
+            if len(self.image_cache) >= self.cache_size:
+                self.image_cache.pop(next(iter(self.image_cache)))
+            self.image_cache[input_hash] = tensor
 
         with torch.no_grad():
             outputs = self.model(tensor.unsqueeze(0).to(device))
