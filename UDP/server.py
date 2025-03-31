@@ -20,8 +20,8 @@ class TCPProtocol:
         self.model = md
         self.transport = None
         self.buffer = bytearray()
-        self.debug_mode = True  # Default debug mode is off
-        self.processing = False  # Flag to prevent concurrent processing
+        self.debug_mode = False
+        self.processing = False
 
     def set_debug_mode(self, enable: bool):
         self.debug_mode = enable
@@ -33,15 +33,15 @@ class TCPProtocol:
             print("Connection made with client.")
 
     def data_received(self, data: bytes):
-        if self.processing:  # Skip if already processing
+        if self.processing:
             return
             
         self.processing = True
         try:
             self.buffer.extend(data)
-            while len(self.buffer) >= 8:  # Ensure we have at least 8 bytes (4 for length + 4 for key)
+            while len(self.buffer) >= 8:
                 payload_length = int.from_bytes(self.buffer[:4], byteorder='little', signed=False)
-                if len(self.buffer) < 4 + 4 + payload_length:  # Check if we have enough data
+                if len(self.buffer) < 4 + 4 + payload_length:
                     break
 
                 key_value = int.from_bytes(self.buffer[4:8], byteorder='little', signed=False)
@@ -58,7 +58,6 @@ class TCPProtocol:
                             if self.debug_mode:
                                 print(error_msg)
                             self.send_response(KeyData.None_, error_msg.encode('utf-8'))
-                            # Xóa dữ liệu đã xử lý khỏi buffer trước khi return
                             del self.buffer[:8 + payload_length]
                             return
                         
@@ -73,7 +72,6 @@ class TCPProtocol:
                         if self.debug_mode:
                             print(error_msg)
                         self.send_response(KeyData.None_, error_msg.encode('utf-8'))
-                        # Xóa dữ liệu đã xử lý khỏi buffer khi có lỗi
                         del self.buffer[:8 + payload_length]
                         return
 
@@ -90,13 +88,11 @@ class TCPProtocol:
                             print(error_msg)
                         self.send_response(KeyData.None_, error_msg.encode('utf-8'))
                 
-                # Remove processed data from buffer
                 del self.buffer[:8 + payload_length]
         finally:
             self.processing = False
 
     def send_response(self, key_data: KeyData, payload: bytes):
-        """Send response with format: [payload_length(4bytes)][key_data(4bytes)][payload]"""
         try:
             key_bytes = int(key_data).to_bytes(4, 'little')
             length_bytes = len(payload).to_bytes(4, 'little')
@@ -124,18 +120,17 @@ class AsyncTCPServer:
         if model_path is None:
             model_path = os.path.join(root_dir, "models", "CNN", "cnn_best_model_v1.pth")
         self.model = SignLanguageRecognizer(model_type, model_path)
-        self.max_connections = 100  # Số lượng kết nối tối đa
-        self.connections = set()  # Theo dõi các kết nối đang hoạt động
+        self.max_connections = 100
+        self.connections = set()
 
     async def start_server(self):
         loop = asyncio.get_running_loop()
         server_config = {
-            'backlog': self.max_connections,  # Allow multiple pending connections
-            'reuse_address': True,  # Allow reuse of address
+            'backlog': self.max_connections,
+            'reuse_address': True,
             'start_serving': True
         }
         
-        # Add reuse_port only on Unix-like systems
         if platform.system() != 'Windows':
             server_config['reuse_port'] = True
             
