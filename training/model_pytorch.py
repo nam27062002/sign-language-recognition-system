@@ -173,3 +173,70 @@ class SignLanguageRecognizer:
         except Exception as e:
             print(f"Error in hand detection: {str(e)}")
             return False
+
+    def process_hand_image(self, input_data):
+        try:
+            image = self._load_image(input_data)
+            if image is None:
+                return None
+                
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = self.hands.process(image_rgb)
+            
+            if not results.multi_hand_landmarks:
+                return None
+                
+            height, width, _ = image.shape
+            hand_mask = np.zeros((height, width), dtype=np.uint8)
+            
+            for hand_landmarks in results.multi_hand_landmarks:
+                points = []
+                for lm in hand_landmarks.landmark:
+                    x, y = int(lm.x * width), int(lm.y * height)
+                    points.append((x, y))
+                cv2.fillPoly(hand_mask, [np.array(points, dtype=np.int32)], 255)
+            
+            # Tìm contour của bàn tay
+            kernel = np.ones((5, 5), np.uint8)
+            hand_mask_dilated = cv2.dilate(hand_mask, kernel, iterations=2)  # Tăng số lần dilation
+            
+            contours, _ = cv2.findContours(hand_mask_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                return None
+                
+            # Tìm vùng bao quanh bàn tay và thêm padding
+            x_min, x_max, y_min, y_max = width, 0, height, 0
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                x_min, y_min = min(x_min, x), min(y_min, y)
+                x_max, y_max = max(x_max, x + w), max(y_max, y + h)
+            
+            # Thêm padding cho vùng bàn tay (30% mỗi bên)
+            padding_x = int((x_max - x_min) * 0.3)
+            padding_y = int((y_max - y_min) * 0.3)
+            
+            x_min = max(0, x_min - padding_x)
+            y_min = max(0, y_min - padding_y)
+            x_max = min(width, x_max + padding_x)
+            y_max = min(height, y_max + padding_y)
+            
+            # Cắt vùng bàn tay từ ảnh gốc (không sử dụng mask)
+            hand_roi = image[y_min:y_max, x_min:x_max]
+            
+            # Điều chỉnh tỷ lệ để vừa với kích thước 320x240 mà không biến dạng
+            target_size = (320, 240)
+            hand_h, hand_w = hand_roi.shape[:2]
+            
+            # Tính toán tỷ lệ thu nhỏ để giữ nguyên tỷ lệ khung hình
+            scale = min(target_size[0] / hand_w, target_size[1] / hand_h)
+            new_w, new_h = int(hand_w * scale), int(hand_h * scale)
+            
+            # Resize ảnh giữ nguyên tỷ lệ
+            resized_hand = cv2.resize(hand_roi, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            
+            # Mã hóa ảnh thành bytes
+            _, processed_image_bytes = cv2.imencode('.png', resized_hand)
+            return processed_image_bytes.tobytes()
+        except Exception as e:
+            print(f"Error processing hand image: {str(e)}")
+            return None

@@ -1,6 +1,9 @@
 ﻿import sys
 import os
 import platform
+import cv2
+import numpy as np
+from datetime import datetime
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 
@@ -13,6 +16,7 @@ class KeyData(IntEnum):
     None_ = 0
     LetterPrediction = 1
     HandRecognition = 2
+    RawImageProcessing = 3
 
 
 class TCPProtocol:
@@ -22,6 +26,31 @@ class TCPProtocol:
         self.buffer = bytearray()
         self.debug_mode = False
         self.processing = False
+        
+        # Thư mục lưu ảnh đã xử lý
+        self.processed_dir = os.path.join(root_dir, "processed_hands")
+        if not os.path.exists(self.processed_dir):
+            os.makedirs(self.processed_dir)
+
+    def save_processed_image(self, image_bytes):
+        try:
+            # Tạo timestamp để đặt tên file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"hand_{timestamp}.png"
+            filepath = os.path.join(self.processed_dir, filename)
+            
+            # Chuyển đổi bytes thành ảnh và lưu
+            image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            cv2.imwrite(filepath, image)
+            
+            if self.debug_mode:
+                print(f"Saved processed image to: {filepath}")
+                
+            return filepath
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Error saving processed image: {e}")
+            return None
 
     def set_debug_mode(self, enable: bool):
         self.debug_mode = enable
@@ -84,6 +113,30 @@ class TCPProtocol:
                         self.send_response(KeyData.HandRecognition, response_str.encode('utf-8'))
                     except Exception as e:
                         error_msg = f"Hand detection error: {str(e)}"
+                        if self.debug_mode:
+                            print(error_msg)
+                        self.send_response(KeyData.None_, error_msg.encode('utf-8'))
+                
+                elif key_data == KeyData.RawImageProcessing:
+                    try:
+                        processed_image = self.model.process_hand_image(payload)
+                        if processed_image is None:
+                            error_msg = "Cannot process image, no hand detected"
+                            if self.debug_mode:
+                                print(error_msg)
+                            self.send_response(KeyData.None_, error_msg.encode('utf-8'))
+                        else:
+                            # Lưu ảnh đã xử lý
+                            saved_path = self.save_processed_image(processed_image)
+                            
+                            # if self.debug_mode:
+                            print(f"Processed image size: {len(processed_image)} bytes")
+                            if saved_path:
+                                print(f"Saved to: {saved_path}")
+                                    
+                            self.send_response(KeyData.RawImageProcessing, processed_image)
+                    except Exception as e:
+                        error_msg = f"Image processing error: {str(e)}"
                         if self.debug_mode:
                             print(error_msg)
                         self.send_response(KeyData.None_, error_msg.encode('utf-8'))
