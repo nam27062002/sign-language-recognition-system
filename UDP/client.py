@@ -4,6 +4,7 @@ import os
 import time
 import cv2
 import numpy as np
+import json
 
 class KeyData(IntEnum):
     None_ = 0
@@ -30,7 +31,7 @@ def recv_all(sock, n):
         data.extend(packet)
     return data
 
-def send_image_for_processing(sock, image_path):
+def send_image_for_processing(sock, image_path, enhance_quality=True, upscale_method='bicubic'):
     """Gửi ảnh để xử lý và nhận về ảnh chỉ chứa bàn tay"""
     try:
         with open(image_path, "rb") as f:
@@ -39,15 +40,26 @@ def send_image_for_processing(sock, image_path):
     except Exception as e:
         print(f"Không đọc được file ảnh: {e}")
         return None
+        
+    # Tạo options JSON
+    options = {
+        "enhance_quality": enhance_quality,
+        "upscale_method": upscale_method
+    }
+    options_json = json.dumps(options).encode('utf-8')
+    
+    # Ghép options và image data
+    full_payload = options_json + image_data
 
     # Đóng gói dữ liệu theo định dạng: [payload_length(4bytes)][key_data(4bytes)][payload]
-    payload_length = len(image_data).to_bytes(4, byteorder="little")
+    payload_length = len(full_payload).to_bytes(4, byteorder="little")
     key_bytes = int(KeyData.RawImageProcessing).to_bytes(4, byteorder="little")
-    packet = payload_length + key_bytes + image_data
+    packet = payload_length + key_bytes + full_payload
     
     print(f"Kích thước gói tin: {len(packet)} bytes")
     print(f"Payload length: {int.from_bytes(payload_length, byteorder='little')} bytes")
     print(f"Key: {int.from_bytes(key_bytes, byteorder='little')}")
+    print(f"Options: {options}")
 
     try:
         # Gửi dữ liệu
@@ -62,21 +74,13 @@ def send_image_for_processing(sock, image_path):
         if response_key == KeyData.RawImageProcessing:
             print(f"📥 Nhận ảnh đã xử lý: {len(response_payload)} bytes")
             
-            # Lưu ảnh đã xử lý
-            output_dir = "processed_images"
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-                
-            filename = os.path.basename(image_path)
-            base_name, ext = os.path.splitext(filename)
-            output_path = os.path.join(output_dir, f"{base_name}_processed.png")
-            
-            # Chuyển bytes thành ảnh và lưu
+            # Hiển thị ảnh
             image = cv2.imdecode(np.frombuffer(response_payload, np.uint8), cv2.IMREAD_COLOR)
-            cv2.imwrite(output_path, image)
-            print(f"Đã lưu ảnh đã xử lý tại: {output_path}")
+            cv2.imshow("Processed Hand", image)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
             
-            return output_path
+            return True
         else:
             response_str = response_payload.decode("utf-8")
             print(f"📥 Nhận phản hồi: Key = {response_key}, Payload = {response_str}")
@@ -178,12 +182,40 @@ def main():
         elif mode == "2":
             # Chọn một ảnh để xử lý
             image_path = input("Nhập đường dẫn đến file ảnh: ")
-            if os.path.exists(image_path):
-                processed_image_path = send_image_for_processing(sock, image_path)
-                if processed_image_path:
-                    print(f"Ảnh đã được xử lý và lưu tại: {processed_image_path}")
-            else:
+            
+            if not os.path.exists(image_path):
                 print("File ảnh không tồn tại!")
+                return
+                
+            # Chọn phương pháp upscale
+            print("\nChọn phương pháp upscale:")
+            print("1. Bicubic (mặc định)")
+            print("2. Lanczos")
+            print("3. Detail Enhancement")
+            print("4. Không upscale")
+            
+            upscale_choice = input("Nhập lựa chọn của bạn (1-4): ")
+            
+            enhance_quality = True
+            upscale_method = 'bicubic'
+            
+            if upscale_choice == "2":
+                upscale_method = 'lanczos'
+            elif upscale_choice == "3":
+                upscale_method = 'detail_enhance'
+            elif upscale_choice == "4":
+                enhance_quality = False
+            
+            # Gửi ảnh để xử lý
+            success = send_image_for_processing(
+                sock, 
+                image_path, 
+                enhance_quality=enhance_quality,
+                upscale_method=upscale_method
+            )
+            
+            if success:
+                print("Ảnh đã được xử lý và hiển thị")
 
     except Exception as e:
         print(f"Lỗi kết nối: {e}")
